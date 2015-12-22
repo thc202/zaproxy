@@ -92,7 +92,7 @@ public abstract class HttpPanelSyntaxHighlightTextView implements HttpPanelView,
 		httpPanelTextArea.setEditable(false);
 		httpPanelTextArea.setComponentPopupMenu(new CustomPopupMenu());
 		
-		JScrollPane scrollPane = new RTextScrollPane(httpPanelTextArea, false);
+		JScrollPane scrollPane = new RTextScrollPane((Component) httpPanelTextArea, false);
 		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 		
 		mainPanel.add(scrollPane, BorderLayout.CENTER);
