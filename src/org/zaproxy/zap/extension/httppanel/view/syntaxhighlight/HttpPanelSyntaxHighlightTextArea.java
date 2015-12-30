@@ -125,7 +125,7 @@ public abstract class HttpPanelSyntaxHighlightTextArea extends RSyntaxTextArea i
 		setClearWhitespaceLinesEnabled(false);
 		
 		// Correct the font size
-		this.setFont(FontUtils.getFont(this.getFont().getFontName()));
+		this.setFont(getFont().deriveFont((float) FontUtils.getDefaultSize()));
 		
 		initHighlighter();
 	}
