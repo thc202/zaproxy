@@ -118,4 +118,8 @@ public class FontUtils {
 		}
 		return scale;
 	}
+
+	public static int getDefaultSize() {
+		return getDefaultFont().getSize();
+	}
 }

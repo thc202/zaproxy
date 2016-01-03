@@ -34,6 +34,7 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.Highlighter;
 import javax.swing.text.Highlighter.HighlightPainter;
+import javax.swing.text.StyleContext;
 
 import org.apache.commons.configuration.FileConfiguration;
 import org.apache.log4j.Logger;
@@ -125,7 +126,8 @@ public abstract class HttpPanelSyntaxHighlightTextArea extends RSyntaxTextArea i
 		setClearWhitespaceLinesEnabled(false);
 		
 		// Correct the font size
-		this.setFont(FontUtils.getFont(this.getFont().getFontName()));
+		StyleContext sc = StyleContext.getDefaultStyleContext();
+		this.setFont(sc.getFont(getFont().getFamily(), getFont().getStyle(), FontUtils.getDefaultSize()));
 		
 		initHighlighter();
 	}
