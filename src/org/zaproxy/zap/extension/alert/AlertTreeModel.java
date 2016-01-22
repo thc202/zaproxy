@@ -20,7 +20,10 @@
 package org.zaproxy.zap.extension.alert;
 
 import java.awt.EventQueue;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Enumeration;
+import java.util.List;
 
 import javax.swing.tree.DefaultTreeModel;
 
@@ -195,6 +198,25 @@ class AlertTreeModel extends DefaultTreeModel {
             }
             this.nodeChanged(parent);
         }
+    }
+
+    public List<Alert> getAlerts(String cleanNodeName) {
+        ArrayList<Alert> alerts = new ArrayList<>();
+        @SuppressWarnings("unchecked")
+        Enumeration<AlertNode> groupAlertNodes = ((AlertNode) getRoot()).children();
+        while (groupAlertNodes.hasMoreElements()) {
+            AlertNode groupAlertNode = groupAlertNodes.nextElement();
+            @SuppressWarnings("unchecked")
+            Enumeration<AlertNode> alertNodes = groupAlertNode.children();
+            while (alertNodes.hasMoreElements()) {
+                AlertNode alertNode = alertNodes.nextElement();
+                if (alertNode.getUserObject().getHistoryRef().getURI().toString().startsWith(cleanNodeName)) {
+                    alerts.add(alertNode.getUserObject());
+                }
+            }
+        }
+        alerts.trimToSize();
+        return alerts;
     }
     
     private static class GroupAlertChildNodeComparator implements Comparator<AlertNode> {

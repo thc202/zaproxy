@@ -662,7 +662,7 @@ public class ExtensionAlert extends ExtensionAdaptor implements SessionChangedLi
     public String getXml(SiteNode site) {
         StringBuilder xml = new StringBuilder();
         xml.append("<alerts>");
-        List<Alert> alerts = site.getAlerts();
+        List<Alert> alerts = treeModel.getAlerts(site.getCleanNodeName());
         SortedSet<String> handledAlerts = new TreeSet<String>(); 
         
         for (int i=0; i < alerts.size(); i++) {
