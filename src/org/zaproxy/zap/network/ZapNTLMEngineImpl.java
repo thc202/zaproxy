@@ -27,6 +27,15 @@
 package org.zaproxy.zap.network;
 
 import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CoderResult;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.charset.UnsupportedCharsetException;
 import java.security.Key;
 import java.security.MessageDigest;
 import java.util.Arrays;
@@ -37,7 +46,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.httpclient.auth.AuthenticationException;
-import org.apache.http.util.EncodingUtils;
+import org.apache.log4j.Logger;
 
 /*
  * The content of this class was copied from org.apache.http.impl.auth.NTLMEngine, HttpComponents Client trunk (revision
@@ -61,6 +70,21 @@ import org.apache.http.util.EncodingUtils;
  * @since 4.1
  */
 final class ZapNTLMEngineImpl {
+
+    /** Unicode encoding */
+    private static final Charset UNICODE_LITTLE_UNMARKED;
+    /** Character encoding */
+    private static final Charset DEFAULT_CHARSET = StandardCharsets.US_ASCII;
+
+    static {
+        Charset charset = null;
+        try {
+            charset = Charset.forName("UnicodeLittleUnmarked");
+        } catch (final UnsupportedCharsetException ex) {
+            Logger.getLogger(ZapNTLMEngineImpl.class).error("Failed to obtain charset:", ex);
+        }
+        UNICODE_LITTLE_UNMARKED = charset;
+    }
 
     // Flags we use; descriptions according to:
     // http://davenport.sourceforge.net/ntlm.html
@@ -89,26 +113,22 @@ final class ZapNTLMEngineImpl {
         java.security.SecureRandom rnd = null;
         try {
             rnd = java.security.SecureRandom.getInstance("SHA1PRNG");
-        } catch (Exception ignore) {
+        } catch (final Exception ignore) {
         }
         RND_GEN = rnd;
     }
-
-    /** Character encoding */
-    static final String DEFAULT_CHARSET = "ASCII";
-
-    /** The character set to use for encoding the credentials */
-    private String credentialCharset = DEFAULT_CHARSET;
 
     /** The signature string as bytes in the default encoding */
     private static final byte[] SIGNATURE;
 
     static {
-        final byte[] bytesWithoutNull = EncodingUtils.getBytes("NTLMSSP", "ASCII");
+        final byte[] bytesWithoutNull = "NTLMSSP".getBytes(StandardCharsets.US_ASCII);
         SIGNATURE = new byte[bytesWithoutNull.length + 1];
         System.arraycopy(bytesWithoutNull, 0, SIGNATURE, 0, bytesWithoutNull.length);
         SIGNATURE[bytesWithoutNull.length] = (byte) 0x00;
     }
+
+    private static final String TYPE_1_MESSAGE = new Type1Message().getResponse();
 
     /**
      * Returns the response for the given message.
@@ -127,7 +147,7 @@ final class ZapNTLMEngineImpl {
      * @throws org.apache.commons.httpclient.auth.AuthenticationException
      *             If the messages cannot be retrieved.
      */
-    final String getResponseFor(final String message, final String username, final String password,
+    static String getResponseFor(final String message, final String username, final char[] password,
             final String host, final String domain) throws AuthenticationException {
 
         final String response;
@@ -152,8 +172,10 @@ final class ZapNTLMEngineImpl {
      *            The domain to authenticate with.
      * @return String the message to add to the HTTP request header.
      */
-    String getType1Message(final String host, final String domain) throws AuthenticationException {
-        return new Type1Message(domain, host).getResponse();
+    static String getType1Message(final String host, final String domain) {
+        // For compatibility reason do not include domain and host in type 1 message
+        //return new Type1Message(domain, host).getResponse();
+        return TYPE_1_MESSAGE;
     }
 
     /**
@@ -176,68 +198,35 @@ final class ZapNTLMEngineImpl {
      * @throws AuthenticationException
      *             If {@encrypt(byte[],byte[])} fails.
      */
-    String getType3Message(final String user, final String password, final String host, final String domain,
+    static String getType3Message(final String user, final char[] password, final String host, final String domain,
             final byte[] nonce, final int type2Flags, final String target, final byte[] targetInformation)
             throws AuthenticationException {
         return new Type3Message(domain, host, user, password, nonce, type2Flags, target,
                 targetInformation).getResponse();
     }
 
-    /**
-     * @return Returns the credentialCharset.
-     */
-    String getCredentialCharset() {
-        return credentialCharset;
-    }
-
-    /**
-     * @param credentialCharset
-     *            The credentialCharset to set.
-     */
-    void setCredentialCharset(final String credentialCharset) {
-        this.credentialCharset = credentialCharset;
-    }
-
-    /** Strip dot suffix from a name */
-    private static String stripDotSuffix(final String value) {
-        if (value == null) {
-            return null;
-        }
-        final int index = value.indexOf(".");
-        if (index != -1)
-            return value.substring(0, index);
-        return value;
-    }
-
-    /** Convert host to standard form */
-    private static String convertHost(final String host) {
-        return stripDotSuffix(host);
-    }
-
-    /** Convert domain to standard form */
-    private static String convertDomain(final String domain) {
-        return stripDotSuffix(domain);
-    }
-
     private static int readULong(final byte[] src, final int index) throws AuthenticationException {
-        if (src.length < index + 4)
+        if (src.length < index + 4) {
             throw new AuthenticationException("NTLM authentication - buffer too small for DWORD");
+        }
         return (src[index] & 0xff) | ((src[index + 1] & 0xff) << 8)
                 | ((src[index + 2] & 0xff) << 16) | ((src[index + 3] & 0xff) << 24);
     }
 
     private static int readUShort(final byte[] src, final int index) throws AuthenticationException {
-        if (src.length < index + 2)
+        if (src.length < index + 2) {
             throw new AuthenticationException("NTLM authentication - buffer too small for WORD");
+        }
         return (src[index] & 0xff) | ((src[index + 1] & 0xff) << 8);
     }
 
     private static byte[] readSecurityBuffer(final byte[] src, final int index) throws AuthenticationException {
         final int length = readUShort(src, index);
         final int offset = readULong(src, index + 4);
-        if (src.length < offset + length)
+        if (src.length < offset + length) {
             throw new AuthenticationException(
                     "NTLM authentication - buffer too small for data item");
+        }
         final byte[] buffer = new byte[length];
         System.arraycopy(src, offset, buffer, 0, length);
         return buffer;
@@ -271,7 +260,7 @@ final class ZapNTLMEngineImpl {
 
         protected final String domain;
         protected final String user;
-        protected final String password;
+        protected final char[] password;
         protected final byte[] challenge;
         protected final String target;
         protected final byte[] targetInformation;
@@ -300,7 +289,7 @@ final class ZapNTLMEngineImpl {
         protected byte[] ntlm2SessionResponseUserSessionKey = null;
         protected byte[] lanManagerSessionKey = null;
 
-        public CipherGen(final String domain, final String user, final String password,
+        public CipherGen(final String domain, final String user, final char[] password,
             final byte[] challenge, final String target, final byte[] targetInformation,
             final byte[] clientChallenge, final byte[] clientChallenge2,
             final byte[] secondaryKey, final byte[] timestamp) {
@@ -316,7 +305,7 @@ final class ZapNTLMEngineImpl {
             this.timestamp = timestamp;
         }
 
-        public CipherGen(final String domain, final String user, final String password,
+        public CipherGen(final String domain, final String user, final char[] password,
             final byte[] challenge, final String target, final byte[] targetInformation) {
             this(domain, user, password, challenge, target, targetInformation, null, null, null, null);
         }
@@ -324,72 +313,81 @@ final class ZapNTLMEngineImpl {
         /** Calculate and return client challenge */
         public byte[] getClientChallenge()
             throws AuthenticationException {
-            if (clientChallenge == null)
+            if (clientChallenge == null) {
                 clientChallenge = makeRandomChallenge();
+            }
             return clientChallenge;
         }
 
         /** Calculate and return second client challenge */
         public byte[] getClientChallenge2()
             throws AuthenticationException {
-            if (clientChallenge2 == null)
+            if (clientChallenge2 == null) {
                 clientChallenge2 = makeRandomChallenge();
+            }
             return clientChallenge2;
         }
 
         /** Calculate and return random secondary key */
         public byte[] getSecondaryKey()
             throws AuthenticationException {
-            if (secondaryKey == null)
+            if (secondaryKey == null) {
                 secondaryKey = makeSecondaryKey();
+            }
             return secondaryKey;
         }
 
         /** Calculate and return the LMHash */
         public byte[] getLMHash()
             throws AuthenticationException {
-            if (lmHash == null)
+            if (lmHash == null) {
                 lmHash = lmHash(password);
+            }
             return lmHash;
         }
 
         /** Calculate and return the LMResponse */
         public byte[] getLMResponse()
             throws AuthenticationException {
-            if (lmResponse == null)
+            if (lmResponse == null) {
                 lmResponse = lmResponse(getLMHash(),challenge);
+            }
             return lmResponse;
         }
 
         /** Calculate and return the NTLMHash */
         public byte[] getNTLMHash()
             throws AuthenticationException {
-            if (ntlmHash == null)
+            if (ntlmHash == null) {
                 ntlmHash = ntlmHash(password);
+            }
             return ntlmHash;
         }
 
         /** Calculate and return the NTLMResponse */
         public byte[] getNTLMResponse()
             throws AuthenticationException {
-            if (ntlmResponse == null)
+            if (ntlmResponse == null) {
                 ntlmResponse = lmResponse(getNTLMHash(),challenge);
+            }
             return ntlmResponse;
         }
 
         /** Calculate the LMv2 hash */
         public byte[] getLMv2Hash()
             throws AuthenticationException {
-            if (lmv2Hash == null)
+            if (lmv2Hash == null) {
                 lmv2Hash = lmv2Hash(domain, user, getNTLMHash());
+            }
             return lmv2Hash;
         }
 
         /** Calculate the NTLMv2 hash */
         public byte[] getNTLMv2Hash()
             throws AuthenticationException {
-            if (ntlmv2Hash == null)
+            if (ntlmv2Hash == null) {
                 ntlmv2Hash = ntlmv2Hash(domain, user, getNTLMHash());
+            }
             return ntlmv2Hash;
         }
 
@@ -412,32 +410,36 @@ final class ZapNTLMEngineImpl {
         /** Calculate the NTLMv2Blob */
         public byte[] getNTLMv2Blob()
             throws AuthenticationException {
-            if (ntlmv2Blob == null)
+            if (ntlmv2Blob == null) {
                 ntlmv2Blob = createBlob(getClientChallenge2(), targetInformation, getTimestamp());
+            }
             return ntlmv2Blob;
         }
 
         /** Calculate the NTLMv2Response */
         public byte[] getNTLMv2Response()
             throws AuthenticationException {
-            if (ntlmv2Response == null)
+            if (ntlmv2Response == null) {
                 ntlmv2Response = lmv2Response(getNTLMv2Hash(),challenge,getNTLMv2Blob());
+            }
             return ntlmv2Response;
         }
 
         /** Calculate the LMv2Response */
         public byte[] getLMv2Response()
             throws AuthenticationException {
-            if (lmv2Response == null)
+            if (lmv2Response == null) {
                 lmv2Response = lmv2Response(getLMv2Hash(),challenge,getClientChallenge());
+            }
             return lmv2Response;
         }
 
         /** Get NTLM2SessionResponse */
         public byte[] getNTLM2SessionResponse()
             throws AuthenticationException {
-            if (ntlm2SessionResponse == null)
+            if (ntlm2SessionResponse == null) {
                 ntlm2SessionResponse = ntlm2SessionResponse(getNTLMHash(),challenge,getClientChallenge());
+            }
             return ntlm2SessionResponse;
         }
 
@@ -445,10 +447,10 @@ final class ZapNTLMEngineImpl {
         public byte[] getLM2SessionResponse()
             throws AuthenticationException {
             if (lm2SessionResponse == null) {
-                final byte[] clientChallenge = getClientChallenge();
+                final byte[] clntChallenge = getClientChallenge();
                 lm2SessionResponse = new byte[24];
-                System.arraycopy(clientChallenge, 0, lm2SessionResponse, 0, clientChallenge.length);
-                Arrays.fill(lm2SessionResponse, clientChallenge.length, lm2SessionResponse.length, (byte) 0x00);
+                System.arraycopy(clntChallenge, 0, lm2SessionResponse, 0, clntChallenge.length);
+                Arrays.fill(lm2SessionResponse, clntChallenge.length, lm2SessionResponse.length, (byte) 0x00);
             }
             return lm2SessionResponse;
         }
@@ -457,9 +459,8 @@ final class ZapNTLMEngineImpl {
         public byte[] getLMUserSessionKey()
             throws AuthenticationException {
             if (lmUserSessionKey == null) {
-                final byte[] lmHash = getLMHash();
                 lmUserSessionKey = new byte[16];
-                System.arraycopy(lmHash, 0, lmUserSessionKey, 0, 8);
+                System.arraycopy(getLMHash(), 0, lmUserSessionKey, 0, 8);
                 Arrays.fill(lmUserSessionKey, 8, 16, (byte) 0x00);
             }
             return lmUserSessionKey;
@@ -469,9 +470,8 @@ final class ZapNTLMEngineImpl {
         public byte[] getNTLMUserSessionKey()
             throws AuthenticationException {
             if (ntlmUserSessionKey == null) {
-                final byte[] ntlmHash = getNTLMHash();
                 final MD4 md4 = new MD4();
-                md4.update(ntlmHash);
+                md4.update(getNTLMHash());
                 ntlmUserSessionKey = md4.getOutput();
             }
             return ntlmUserSessionKey;
@@ -493,12 +493,11 @@ final class ZapNTLMEngineImpl {
         public byte[] getNTLM2SessionResponseUserSessionKey()
             throws AuthenticationException {
             if (ntlm2SessionResponseUserSessionKey == null) {
-                final byte[] ntlmUserSessionKey = getNTLMUserSessionKey();
                 final byte[] ntlm2SessionResponseNonce = getLM2SessionResponse();
                 final byte[] sessionNonce = new byte[challenge.length + ntlm2SessionResponseNonce.length];
                 System.arraycopy(challenge, 0, sessionNonce, 0, challenge.length);
                 System.arraycopy(ntlm2SessionResponseNonce, 0, sessionNonce, challenge.length, ntlm2SessionResponseNonce.length);
-                ntlm2SessionResponseUserSessionKey = hmacMD5(sessionNonce,ntlmUserSessionKey);
+                ntlm2SessionResponseUserSessionKey = hmacMD5(sessionNonce,getNTLMUserSessionKey());
             }
             return ntlm2SessionResponseUserSessionKey;
         }
@@ -507,16 +506,14 @@ final class ZapNTLMEngineImpl {
         public byte[] getLanManagerSessionKey()
             throws AuthenticationException {
             if (lanManagerSessionKey == null) {
-                final byte[] lmHash = getLMHash();
-                final byte[] lmResponse = getLMResponse();
                 try {
                     final byte[] keyBytes = new byte[14];
-                    System.arraycopy(lmHash, 0, keyBytes, 0, 8);
+                    System.arraycopy(getLMHash(), 0, keyBytes, 0, 8);
                     Arrays.fill(keyBytes, 8, keyBytes.length, (byte)0xbd);
                     final Key lowKey = createDESKey(keyBytes, 0);
                     final Key highKey = createDESKey(keyBytes, 7);
                     final byte[] truncatedResponse = new byte[8];
-                    System.arraycopy(lmResponse, 0, truncatedResponse, 0, truncatedResponse.length);
+                    System.arraycopy(getLMResponse(), 0, truncatedResponse, 0, truncatedResponse.length);
                     Cipher des = Cipher.getInstance("DES/ECB/NoPadding");
                     des.init(Cipher.ENCRYPT_MODE, lowKey);
                     final byte[] lowPart = des.doFinal(truncatedResponse);
@@ -565,19 +562,6 @@ final class ZapNTLMEngineImpl {
     static byte[] ntlm2SessionResponse(final byte[] ntlmHash, final byte[] challenge,
             final byte[] clientChallenge) throws AuthenticationException {
         try {
-            // Look up MD5 algorithm (was necessary on jdk 1.4.2)
-            // This used to be needed, but java 1.5.0_07 includes the MD5
-            // algorithm (finally)
-            // Class x = Class.forName("gnu.crypto.hash.MD5");
-            // Method updateMethod = x.getMethod("update",new
-            // Class[]{byte[].class});
-            // Method digestMethod = x.getMethod("digest",new Class[0]);
-            // Object mdInstance = x.newInstance();
-            // updateMethod.invoke(mdInstance,new Object[]{challenge});
-            // updateMethod.invoke(mdInstance,new Object[]{clientChallenge});
-            // byte[] digest = (byte[])digestMethod.invoke(mdInstance,new
-            // Object[0]);
-
             final MessageDigest md5 = MessageDigest.getInstance("MD5");
             md5.update(challenge);
             md5.update(clientChallenge);
@@ -586,9 +570,10 @@ final class ZapNTLMEngineImpl {
             final byte[] sessionHash = new byte[8];
             System.arraycopy(digest, 0, sessionHash, 0, 8);
             return lmResponse(ntlmHash, sessionHash);
-        } catch (Exception e) {
-            if (e instanceof AuthenticationException)
+        } catch (final Exception e) {
+            if (e instanceof AuthenticationException) {
                 throw (AuthenticationException) e;
+            }
             throw new AuthenticationException(e.getMessage(), e);
         }
     }
@@ -602,15 +587,19 @@ final class ZapNTLMEngineImpl {
      * @return The LM Hash of the given password, used in the calculation of the
      *         LM Response.
      */
-    private static byte[] lmHash(final String password) throws AuthenticationException {
+    private static byte[] lmHash(final char[] password) throws AuthenticationException {
         try {
-            final byte[] oemPassword = password.toUpperCase(Locale.US).getBytes("US-ASCII");
+            final char[] tmp = new char[password.length];
+            for (int i = 0; i < password.length; i++) {
+                tmp[i] = Character.toUpperCase(password[i]);
+            }
+            final byte[] oemPassword = new ByteArrayBuilder().append(tmp).toByteArray();
             final int length = Math.min(oemPassword.length, 14);
             final byte[] keyBytes = new byte[14];
             System.arraycopy(oemPassword, 0, keyBytes, 0, length);
             final Key lowKey = createDESKey(keyBytes, 0);
             final Key highKey = createDESKey(keyBytes, 7);
-            final byte[] magicConstant = "KGS!@#$%".getBytes("US-ASCII");
+            final byte[] magicConstant = "KGS!@#$%".getBytes(StandardCharsets.US_ASCII);
             final Cipher des = Cipher.getInstance("DES/ECB/NoPadding");
             des.init(Cipher.ENCRYPT_MODE, lowKey);
             final byte[] lowHash = des.doFinal(magicConstant);
@@ -620,7 +609,7 @@ final class ZapNTLMEngineImpl {
             System.arraycopy(lowHash, 0, lmHash, 0, 8);
             System.arraycopy(highHash, 0, lmHash, 8, 8);
             return lmHash;
-        } catch (Exception e) {
+        } catch (final Exception e) {
             throw new AuthenticationException(e.getMessage(), e);
         }
     }
@@ -634,15 +623,15 @@ final class ZapNTLMEngineImpl {
      * @return The NTLM Hash of the given password, used in the calculation of
      *         the NTLM Response and the NTLMv2 and LMv2 Hashes.
      */
-    private static byte[] ntlmHash(final String password) throws AuthenticationException {
-        try {
-            final byte[] unicodePassword = password.getBytes("UnicodeLittleUnmarked");
-            final MD4 md4 = new MD4();
-            md4.update(unicodePassword);
-            return md4.getOutput();
-        } catch (UnsupportedEncodingException e) {
-            throw new AuthenticationException("Unicode not supported: " + e.getMessage(), e);
+    private static byte[] ntlmHash(final char[] password) throws AuthenticationException {
+        if (UNICODE_LITTLE_UNMARKED == null) {
+            throw new AuthenticationException("Unicode not supported");
         }
+        final byte[] unicodePassword = new ByteArrayBuilder()
+                .charset(UNICODE_LITTLE_UNMARKED).append(password).toByteArray();
+        final MD4 md4 = new MD4();
+        md4.update(unicodePassword);
+        return md4.getOutput();
     }
 
     /**
@@ -653,17 +642,16 @@ final class ZapNTLMEngineImpl {
      */
     private static byte[] lmv2Hash(final String domain, final String user, final byte[] ntlmHash)
             throws AuthenticationException {
-        try {
-            final HMACMD5 hmacMD5 = new HMACMD5(ntlmHash);
-            // Upper case username, upper case domain!
-            hmacMD5.update(user.toUpperCase(Locale.US).getBytes("UnicodeLittleUnmarked"));
-            if (domain != null) {
-                hmacMD5.update(domain.toUpperCase(Locale.US).getBytes("UnicodeLittleUnmarked"));
-            }
-            return hmacMD5.getOutput();
-        } catch (UnsupportedEncodingException e) {
-            throw new AuthenticationException("Unicode not supported! " + e.getMessage(), e);
+        if (UNICODE_LITTLE_UNMARKED == null) {
+            throw new AuthenticationException("Unicode not supported");
         }
+        final HMACMD5 hmacMD5 = new HMACMD5(ntlmHash);
+        // Upper case username, upper case domain!
+        hmacMD5.update(user.toUpperCase(Locale.ROOT).getBytes(UNICODE_LITTLE_UNMARKED));
+        if (domain != null) {
+            hmacMD5.update(domain.toUpperCase(Locale.ROOT).getBytes(UNICODE_LITTLE_UNMARKED));
+        }
+        return hmacMD5.getOutput();
     }
 
     /**
@@ -674,17 +662,16 @@ final class ZapNTLMEngineImpl {
      */
     private static byte[] ntlmv2Hash(final String domain, final String user, final byte[] ntlmHash)
             throws AuthenticationException {
-        try {
-            final HMACMD5 hmacMD5 = new HMACMD5(ntlmHash);
-            // Upper case username, mixed case target!!
-            hmacMD5.update(user.toUpperCase(Locale.US).getBytes("UnicodeLittleUnmarked"));
-            if (domain != null) {
-                hmacMD5.update(domain.getBytes("UnicodeLittleUnmarked"));
-            }
-            return hmacMD5.getOutput();
-        } catch (UnsupportedEncodingException e) {
-            throw new AuthenticationException("Unicode not supported! " + e.getMessage(), e);
+        if (UNICODE_LITTLE_UNMARKED == null) {
+            throw new AuthenticationException("Unicode not supported");
         }
+        final HMACMD5 hmacMD5 = new HMACMD5(ntlmHash);
+        // Upper case username, mixed case target!!
+        hmacMD5.update(user.toUpperCase(Locale.ROOT).getBytes(UNICODE_LITTLE_UNMARKED));
+        if (domain != null) {
+            hmacMD5.update(domain.getBytes(UNICODE_LITTLE_UNMARKED));
+        }
+        return hmacMD5.getOutput();
     }
 
     /**
@@ -716,7 +703,7 @@ final class ZapNTLMEngineImpl {
             System.arraycopy(middleResponse, 0, lmResponse, 8, 8);
             System.arraycopy(highResponse, 0, lmResponse, 16, 8);
             return lmResponse;
-        } catch (Exception e) {
+        } catch (final Exception e) {
             throw new AuthenticationException(e.getMessage(), e);
         }
     }
@@ -844,24 +831,26 @@ final class ZapNTLMEngineImpl {
 
         /** Constructor to use when message contents are known */
         NTLMMessage(final String messageBody, final int expectedType) throws AuthenticationException {
-            messageContents = Base64.decodeBase64(EncodingUtils.getBytes(messageBody,
-                    DEFAULT_CHARSET));
+            messageContents = Base64.decodeBase64(messageBody.getBytes(DEFAULT_CHARSET));
             // Look for NTLM message
-            if (messageContents.length < SIGNATURE.length)
+            if (messageContents.length < SIGNATURE.length) {
                 throw new AuthenticationException("NTLM message decoding error - packet too short");
+            }
             int i = 0;
             while (i < SIGNATURE.length) {
-                if (messageContents[i] != SIGNATURE[i])
+                if (messageContents[i] != SIGNATURE[i]) {
                     throw new AuthenticationException(
                             "NTLM message expected - instead got unrecognized bytes");
+                }
                 i++;
             }
 
             // Check to be sure there's a type 2 message indicator next
             final int type = readULong(SIGNATURE.length);
-            if (type != expectedType)
+            if (type != expectedType) {
                 throw new AuthenticationException("NTLM type " + Integer.toString(expectedType)
                         + " message expected - instead got type " + Integer.toString(type));
+            }
 
             currentOutputPosition = messageContents.length;
         }
@@ -881,15 +870,17 @@ final class ZapNTLMEngineImpl {
 
         /** Read a byte from a position within the message buffer */
         protected byte readByte(final int position) throws AuthenticationException {
-            if (messageContents.length < position + 1)
+            if (messageContents.length < position + 1) {
                 throw new AuthenticationException("NTLM: Message too short");
+            }
             return messageContents[position];
         }
 
         /** Read a bunch of bytes from a position in the message buffer */
         protected void readBytes(final byte[] buffer, final int position) throws AuthenticationException {
-            if (messageContents.length < position + buffer.length)
+            if (messageContents.length < position + buffer.length) {
                 throw new AuthenticationException("NTLM: Message too short");
+            }
             System.arraycopy(messageContents, position, buffer, 0, buffer.length);
         }
 
@@ -979,33 +970,38 @@ final class ZapNTLMEngineImpl {
             } else {
                 resp = messageContents;
             }
-            return EncodingUtils.getAsciiString(Base64.encodeBase64(resp));
+            return new String(Base64.encodeBase64(resp), StandardCharsets.US_ASCII);
         }
 
     }
 
     /** Type 1 message assembly class */
     static class Type1Message extends NTLMMessage {
-        protected byte[] hostBytes;
-        protected byte[] domainBytes;
 
-        /** Constructor. Include the arguments the message will need */
+        private final byte[] hostBytes;
+        private final byte[] domainBytes;
+
         Type1Message(final String domain, final String host) throws AuthenticationException {
             super();
-            try {
-                // Strip off domain name from the host!
-                final String unqualifiedHost = convertHost(host);
-                // Use only the base domain name!
-                final String unqualifiedDomain = convertDomain(domain);
-
-                hostBytes = unqualifiedHost != null? unqualifiedHost.getBytes("ASCII") : null;
-                domainBytes = unqualifiedDomain != null ? unqualifiedDomain
-                        .toUpperCase(Locale.US).getBytes("ASCII") : null;
-            } catch (UnsupportedEncodingException e) {
-                throw new AuthenticationException("Unicode unsupported: " + e.getMessage(), e);
+            if (UNICODE_LITTLE_UNMARKED == null) {
+                throw new AuthenticationException("Unicode not supported");
             }
+            // All host name manipulations now take place in the credentials
+            final String unqualifiedHost = host;
+            // All domain name manipulations now take place in the credentials
+            final String unqualifiedDomain = domain;
+
+            hostBytes = unqualifiedHost != null ?
+                    unqualifiedHost.getBytes(UNICODE_LITTLE_UNMARKED) : null;
+            domainBytes = unqualifiedDomain != null ?
+                    unqualifiedDomain.toUpperCase(Locale.ROOT).getBytes(UNICODE_LITTLE_UNMARKED) : null;
         }
 
+        Type1Message() {
+            super();
+            hostBytes = null;
+            domainBytes = null;
+        }
         /**
          * Getting the response involves building the message before returning
          * it
@@ -1068,11 +1064,13 @@ final class ZapNTLMEngineImpl {
 
 
             // Host (workstation) String.
-            //addBytes(hostBytes);
-
+            if (hostBytes != null) {
+                addBytes(hostBytes);
+            }
             // Domain String.
-            //addBytes(domainBytes);
-
+            if (domainBytes != null) {
+                addBytes(domainBytes);
+            }
 
             return super.getResponse();
         }
@@ -1081,10 +1079,10 @@ final class ZapNTLMEngineImpl {
 
     /** Type 2 message class */
     static class Type2Message extends NTLMMessage {
-        protected byte[] challenge;
+        protected final byte[] challenge;
         protected String target;
         protected byte[] targetInfo;
-        protected int flags;
+        protected final int flags;
 
         Type2Message(final String message) throws AuthenticationException {
             super(message, 2);
@@ -1109,10 +1107,11 @@ final class ZapNTLMEngineImpl {
 
             flags = readULong(20);
 
-            if ((flags & FLAG_REQUEST_UNICODE_ENCODING) == 0)
+            if ((flags & FLAG_REQUEST_UNICODE_ENCODING) == 0) {
                 throw new AuthenticationException(
-                        "NTLM type 2 message has flags that make no sense: "
+                        "NTLM type 2 message indicates no support for Unicode. Flags are: "
                                 + Integer.toString(flags));
+            }
 
             // Do the target!
             target = null;
@@ -1124,7 +1123,7 @@ final class ZapNTLMEngineImpl {
                 if (bytes.length != 0) {
                     try {
                         target = new String(bytes, "UnicodeLittleUnmarked");
-                    } catch (UnsupportedEncodingException e) {
+                    } catch (final UnsupportedEncodingException e) {
                         throw new AuthenticationException(e.getMessage(), e);
                     }
                 }
@@ -1166,28 +1165,28 @@ final class ZapNTLMEngineImpl {
     /** Type 3 message assembly class */
     static class Type3Message extends NTLMMessage {
         // Response flags from the type2 message
-        protected int type2Flags;
+        protected final int type2Flags;
 
-        protected byte[] domainBytes;
-        protected byte[] hostBytes;
-        protected byte[] userBytes;
+        protected final byte[] domainBytes;
+        protected final byte[] hostBytes;
+        protected final byte[] userBytes;
 
         protected byte[] lmResp;
         protected byte[] ntResp;
-        protected byte[] sessionKey;
+        protected final byte[] sessionKey;
 
 
         /** Constructor. Pass the arguments we will need */
-        Type3Message(final String domain, final String host, final String user, final String password, final byte[] nonce,
+        Type3Message(final String domain, final String host, final String user, final char[] password, final byte[] nonce,
                 final int type2Flags, final String target, final byte[] targetInformation)
                 throws AuthenticationException {
             // Save the flags
             this.type2Flags = type2Flags;
 
-            // Strip off domain name from the host!
-            final String unqualifiedHost = convertHost(host);
-            // Use only the base domain name!
-            final String unqualifiedDomain = convertDomain(domain);
+            // All host name manipulations now take place in the credentials
+            final String unqualifiedHost = host;
+            // All domain name manipulations now take place in the credentials
+            final String unqualifiedDomain = domain;
 
             // Create a cipher generator class.  Use domain BEFORE it gets modified!
             final CipherGen gen = new CipherGen(unqualifiedDomain, user, password, nonce, target, targetInformation);
@@ -1203,58 +1202,60 @@ final class ZapNTLMEngineImpl {
                     // NTLMv2
                     ntResp = gen.getNTLMv2Response();
                     lmResp = gen.getLMv2Response();
-                    if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0)
+                    if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0) {
                         userSessionKey = gen.getLanManagerSessionKey();
-                    else
+                    } else {
                         userSessionKey = gen.getNTLMv2UserSessionKey();
+                    }
                 } else {
                     // NTLMv1
                     if ((type2Flags & FLAG_REQUEST_NTLM2_SESSION) != 0) {
                         // NTLM2 session stuff is requested
                         ntResp = gen.getNTLM2SessionResponse();
                         lmResp = gen.getLM2SessionResponse();
-                        if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0)
+                        if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0) {
                             userSessionKey = gen.getLanManagerSessionKey();
-                        else
+                        } else {
                             userSessionKey = gen.getNTLM2SessionResponseUserSessionKey();
+                        }
                     } else {
                         ntResp = gen.getNTLMResponse();
                         lmResp = gen.getLMResponse();
-                        if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0)
+                        if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0) {
                             userSessionKey = gen.getLanManagerSessionKey();
-                        else
+                        } else {
                             userSessionKey = gen.getNTLMUserSessionKey();
+                        }
                     }
                 }
-            } catch (AuthenticationException e) {
+            } catch (final AuthenticationException e) {
                 // This likely means we couldn't find the MD4 hash algorithm -
                 // fail back to just using LM
                 ntResp = new byte[0];
                 lmResp = gen.getLMResponse();
-                if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0)
+                if ((type2Flags & FLAG_REQUEST_LAN_MANAGER_KEY) != 0) {
                     userSessionKey = gen.getLanManagerSessionKey();
-                else
+                } else {
                     userSessionKey = gen.getLMUserSessionKey();
+                }
             }
 
             if ((type2Flags & FLAG_REQUEST_SIGN) != 0) {
-                if ((type2Flags & FLAG_REQUEST_EXPLICIT_KEY_EXCH) != 0)
+                if ((type2Flags & FLAG_REQUEST_EXPLICIT_KEY_EXCH) != 0) {
                     sessionKey = RC4(gen.getSecondaryKey(), userSessionKey);
-                else
+                } else {
                     sessionKey = userSessionKey;
+                }
             } else {
                 sessionKey = null;
             }
-
-            try {
-                hostBytes = unqualifiedHost != null ? unqualifiedHost
-                        .getBytes("UnicodeLittleUnmarked") : null;
-                domainBytes = unqualifiedDomain != null ? unqualifiedDomain
-                        .toUpperCase(Locale.US).getBytes("UnicodeLittleUnmarked") : null;
-                userBytes = user.getBytes("UnicodeLittleUnmarked");
-            } catch (UnsupportedEncodingException e) {
-                throw new AuthenticationException("Unicode not supported: " + e.getMessage(), e);
+            if (UNICODE_LITTLE_UNMARKED == null) {
+                throw new AuthenticationException("Unicode not supported");
             }
+            hostBytes = unqualifiedHost != null ? unqualifiedHost.getBytes(UNICODE_LITTLE_UNMARKED) : null;
+            domainBytes = unqualifiedDomain != null ? unqualifiedDomain
+                    .toUpperCase(Locale.ROOT).getBytes(UNICODE_LITTLE_UNMARKED) : null;
+            userBytes = user.getBytes(UNICODE_LITTLE_UNMARKED);
         }
 
         /** Assemble the response */
@@ -1267,10 +1268,11 @@ final class ZapNTLMEngineImpl {
             final int hostLen = hostBytes != null ? hostBytes.length: 0;
             final int userLen = userBytes.length;
             final int sessionKeyLen;
-            if (sessionKey != null)
+            if (sessionKey != null) {
                 sessionKeyLen = sessionKey.length;
-            else
+            } else {
                 sessionKeyLen = 0;
+            }
 
             // Calculate the layout within the packet
             final int lmRespOffset = 72;  // allocate space for the version
@@ -1367,8 +1369,9 @@ final class ZapNTLMEngineImpl {
             addBytes(domainBytes);
             addBytes(userBytes);
             addBytes(hostBytes);
-            if (sessionKey != null)
+            if (sessionKey != null) {
                 addBytes(sessionKey);
+            }
 
             return super.getResponse();
         }
@@ -1410,7 +1413,7 @@ final class ZapNTLMEngineImpl {
         protected int C = 0x98badcfe;
         protected int D = 0x10325476;
         protected long count = 0L;
-        protected byte[] dataBuffer = new byte[64];
+        protected final byte[] dataBuffer = new byte[64];
 
         MD4() {
         }
@@ -1569,15 +1572,15 @@ final class ZapNTLMEngineImpl {
      * resources by Karl Wright
      */
     static class HMACMD5 {
-        protected byte[] ipad;
-        protected byte[] opad;
-        protected MessageDigest md5;
+        protected final byte[] ipad;
+        protected final byte[] opad;
+        protected final MessageDigest md5;
 
         HMACMD5(final byte[] input) throws AuthenticationException {
             byte[] key = input;
             try {
                 md5 = MessageDigest.getInstance("MD5");
-            } catch (Exception ex) {
+            } catch (final Exception ex) {
                 // Umm, the algorithm doesn't exist - throw an
                 // AuthenticationException!
                 throw new AuthenticationException(
@@ -1607,7 +1610,7 @@ final class ZapNTLMEngineImpl {
                 i++;
             }
 
-            // Very important: update the digest with the ipad buffer
+            // Very important: processChallenge the digest with the ipad buffer
             md5.reset();
             md5.update(ipad);
 
@@ -1640,7 +1643,7 @@ final class ZapNTLMEngineImpl {
 
     public String generateType3Msg(
             final String username,
-            final String password,
+            final char[] password,
             final String domain,
             final String workstation,
             final String challenge) throws AuthenticationException {
@@ -1656,4 +1659,174 @@ final class ZapNTLMEngineImpl {
                 t2m.getTargetInfo());
     }
 
+    /**
+     * Builder class for sequences of bytes.
+     *
+     * @since 5.0
+     */
+    private static class ByteArrayBuilder {
+
+        private CharsetEncoder charsetEncoder;
+        private ByteBuffer buffer;
+
+        public ByteArrayBuilder() {
+        }
+
+        public ByteArrayBuilder(final int initialCapacity) {
+            this.buffer = ByteBuffer.allocate(initialCapacity);
+        }
+
+        public int capacity() {
+            return this.buffer != null ? this.buffer.capacity() : 0;
+        }
+
+        static ByteBuffer ensureFreeCapacity(final ByteBuffer buffer, final int capacity) {
+            if (buffer == null) {
+                return ByteBuffer.allocate(capacity);
+            }
+            if (buffer.remaining() < capacity) {
+                final ByteBuffer newBuffer = ByteBuffer.allocate(buffer.position() + capacity);
+                buffer.flip();
+                newBuffer.put(buffer);
+                return newBuffer;
+            }
+            return buffer;
+        }
+
+        static ByteBuffer encode(
+                final ByteBuffer buffer, final CharBuffer in, final CharsetEncoder encoder) throws CharacterCodingException {
+
+            final int capacity = (int) (in.remaining() * encoder.averageBytesPerChar());
+            ByteBuffer out = ensureFreeCapacity(buffer, capacity);
+            for (;;) {
+                CoderResult result = in.hasRemaining() ? encoder.encode(in, out, true) : CoderResult.UNDERFLOW;
+                if (result.isError()) {
+                    result.throwException();
+                }
+                if (result.isUnderflow()) {
+                    result = encoder.flush(out);
+                }
+                if (result.isUnderflow()) {
+                    break;
+                }
+                if (result.isOverflow()) {
+                    out = ensureFreeCapacity(out, capacity);
+                }
+            }
+            return out;
+        }
+
+        public void ensureFreeCapacity(final int freeCapacity) {
+            this.buffer = ensureFreeCapacity(this.buffer, freeCapacity);
+        }
+
+        private void doAppend(final CharBuffer charBuffer) {
+            if (this.charsetEncoder == null) {
+                this.charsetEncoder = StandardCharsets.US_ASCII.newEncoder()
+                        .onMalformedInput(CodingErrorAction.IGNORE)
+                        .onUnmappableCharacter(CodingErrorAction.REPLACE);
+            }
+            this.charsetEncoder.reset();
+            try {
+                this.buffer = encode(this.buffer, charBuffer, this.charsetEncoder);
+            } catch (final CharacterCodingException ex) {
+                // Should never happen
+                throw new IllegalStateException("Unexpected character coding error", ex);
+            }
+        }
+
+        public ByteArrayBuilder charset(final Charset charset) {
+            if (charset == null) {
+                this.charsetEncoder = null;
+            } else {
+                this.charsetEncoder = charset.newEncoder()
+                        .onMalformedInput(CodingErrorAction.IGNORE)
+                        .onUnmappableCharacter(CodingErrorAction.REPLACE);
+            }
+            return this;
+        }
+
+        public ByteArrayBuilder append(final byte[] b, final int off, final int len) {
+            if (b == null) {
+                return this;
+            }
+            if ((off < 0) || (off > b.length) || (len < 0) ||
+                    ((off + len) < 0) || ((off + len) > b.length)) {
+                throw new IndexOutOfBoundsException("off: " + off + " len: " + len + " b.length: " + b.length);
+            }
+            ensureFreeCapacity(len);
+            this.buffer.put(b, off, len);
+            return this;
+        }
+
+        public ByteArrayBuilder append(final byte[] b) {
+            if (b == null) {
+                return this;
+            }
+            return append(b, 0, b.length);
+        }
+
+        public ByteArrayBuilder append(final CharBuffer charBuffer) {
+            if (charBuffer == null) {
+                return this;
+            }
+            doAppend(charBuffer);
+            return this;
+        }
+
+        public ByteArrayBuilder append(final char[] b, final int off, final int len) {
+            if (b == null) {
+                return this;
+            }
+            if ((off < 0) || (off > b.length) || (len < 0) ||
+                    ((off + len) < 0) || ((off + len) > b.length)) {
+                throw new IndexOutOfBoundsException("off: " + off + " len: " + len + " b.length: " + b.length);
+            }
+            return append(CharBuffer.wrap(b, off, len));
+        }
+
+        public ByteArrayBuilder append(final char[] b) {
+            if (b == null) {
+                return this;
+            }
+            return append(b, 0, b.length);
+        }
+
+        public ByteArrayBuilder append(final String s) {
+            if (s == null) {
+                return this;
+            }
+            return append(CharBuffer.wrap(s));
+        }
+
+        public ByteBuffer toByteBuffer() {
+            return this.buffer != null ? this.buffer.duplicate() : ByteBuffer.allocate(0);
+        }
+
+        public byte[] toByteArray() {
+            if (this.buffer == null) {
+                return new byte[] {};
+            }
+            this.buffer.flip();
+            final byte[] b = new byte[this.buffer.remaining()];
+            this.buffer.get(b);
+            this.buffer.clear();
+            return b;
+        }
+
+        public void reset() {
+            if (this.charsetEncoder != null) {
+                this.charsetEncoder.reset();
+            }
+            if (this.buffer != null) {
+                this.buffer.clear();
+            }
+        }
+
+        @Override
+        public String toString() {
+            return this.buffer != null ? this.buffer.toString() : "null";
+        }
+
+    }
 }

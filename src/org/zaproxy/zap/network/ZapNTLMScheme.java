@@ -157,7 +157,7 @@ public class ZapNTLMScheme implements AuthScheme {
         } else if (this.state == State.MSG_TYPE2_RECEVIED) {
             response = this.engine.generateType3Msg(
                     ntcredentials.getUserName(),
-                    ntcredentials.getPassword(),
+                    ntcredentials.getPassword().toCharArray(),
                     ntcredentials.getDomain(),
                     ntcredentials.getHost(),
                     this.challenge);
