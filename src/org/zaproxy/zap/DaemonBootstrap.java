@@ -20,8 +20,11 @@
 package org.zaproxy.zap;
 
 import java.io.FileNotFoundException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 
 import org.apache.log4j.BasicConfigurator;
+import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.parosproxy.paros.CommandLine;
 import org.parosproxy.paros.Constant;
@@ -57,6 +60,19 @@ class DaemonBootstrap extends HeadlessBootstrap {
         }
         logger.info(getStartingMessage());
 
+        Logger.getLogger("org.apache.commons.httpclient.MultiThreadedHttpConnectionManager").setLevel(Level.DEBUG);
+
+        logger.info("Starting DNS logger...");
+        new DnsLogger().start();
+
+        try {
+            logger.info("Waiting for DNS logger to start...");
+            Thread.sleep(5000);
+            logger.info("Finished waiting for DNS logger.");
+        } catch (InterruptedException e1) {
+            logger.error("Failed to wait the specified time...");
+        }
+
         try {
             initModel();
         } catch (Exception e) {
@@ -67,6 +83,16 @@ class DaemonBootstrap extends HeadlessBootstrap {
 
             logger.fatal(e.getMessage(), e);
             return 1;
+        }
+
+        logger.info("InetAddressCachePolicy set to: " + sun.net.InetAddressCachePolicy.get());
+
+        String name = "example.org";
+        logger.info("Resolving " + name);
+        try {
+            InetAddress.getByName(name);
+        } catch (UnknownHostException e) {
+            logger.error("Failed to resolve " + name, e);
         }
 
         // start in a background thread
