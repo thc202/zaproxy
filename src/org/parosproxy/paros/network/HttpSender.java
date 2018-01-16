@@ -66,7 +66,6 @@
 // ZAP: 2017/06/12 Allow to ignore listeners.
 // ZAP: 2017/06/19 Allow to send a request with custom socket timeout.
 // ZAP: 2017/11/20 Add initiator constant for Token Generator requests.
-// ZAP: 2017/11/27 Use custom CookieSpec (ZapCookieSpec).
 
 package org.parosproxy.paros.network;
 
@@ -104,7 +103,6 @@ import org.apache.log4j.Logger;
 import org.zaproxy.zap.ZapGetMethod;
 import org.zaproxy.zap.ZapHttpConnectionManager;
 import org.zaproxy.zap.network.HttpSenderListener;
-import org.zaproxy.zap.network.ZapCookieSpec;
 import org.zaproxy.zap.network.HttpRedirectionValidator;
 import org.zaproxy.zap.network.HttpRequestConfig;
 import org.zaproxy.zap.network.ZapNTLMScheme;
@@ -147,8 +145,6 @@ public class HttpSender {
 		}
 
 		AuthPolicy.registerAuthScheme(AuthPolicy.NTLM, ZapNTLMScheme.class);
-		CookiePolicy.registerCookieSpec(CookiePolicy.DEFAULT, ZapCookieSpec.class);
-		CookiePolicy.registerCookieSpec(CookiePolicy.BROWSER_COMPATIBILITY, ZapCookieSpec.class);
 	}
 
 	private static HttpMethodHelper helper = new HttpMethodHelper();
@@ -209,14 +205,7 @@ public class HttpSender {
 
 		if (useGlobalState) {
 			checkState();
-		} else {
-			setClientsCookiePolicy(CookiePolicy.BROWSER_COMPATIBILITY);
 		}
-	}
-
-	private void setClientsCookiePolicy(String policy) {
-		client.getParams().setCookiePolicy(policy);
-		clientViaProxy.getParams().setCookiePolicy(policy);
 	}
 
 	public static SSLConnector getSSLConnector() {
@@ -227,9 +216,11 @@ public class HttpSender {
 		if (param.isHttpStateEnabled()) {
 			client.setState(param.getHttpState());
 			clientViaProxy.setState(param.getHttpState());
-			setClientsCookiePolicy(CookiePolicy.BROWSER_COMPATIBILITY);
+			client.getParams().setCookiePolicy(CookiePolicy.BROWSER_COMPATIBILITY);
+			clientViaProxy.getParams().setCookiePolicy(CookiePolicy.BROWSER_COMPATIBILITY);
 		} else {
-			setClientsCookiePolicy(CookiePolicy.IGNORE_COOKIES);
+			client.getParams().setCookiePolicy(CookiePolicy.IGNORE_COOKIES);
+			clientViaProxy.getParams().setCookiePolicy(CookiePolicy.IGNORE_COOKIES);
 		}
 	}
 
