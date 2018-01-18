@@ -1347,17 +1347,8 @@ public abstract class HttpMethodBase implements HttpMethod {
         }
         Cookie[] cookies = matcher.match(host, conn.getPort(),
             getPath(), conn.isSecure(), state.getCookies());
-        if ((cookies != null) && (cookies.length > 0)) {
-            if (getParams().isParameterTrue(HttpMethodParams.SINGLE_COOKIE_HEADER)) {
-                // In strict mode put all cookies on the same header
-                putAllCookiesInASingleHeader(host, matcher, cookies);
-            } else {
-                // In non-strict mode put each cookie on a separate header
-                for (int i = 0; i < cookies.length; i++) {
-                    String s = matcher.formatCookie(cookies[i]);
-                    getRequestHeaderGroup().addHeader(new Header(HttpHeader.COOKIE, s, true));
-                }
-            }
+        if ((cookies != null && cookies.length > 0) || cookieheaders.length > 0) {
+            putAllCookiesInASingleHeader(host, matcher, cookies);
             if (matcher instanceof CookieVersionSupport) {
                 CookieVersionSupport versupport = (CookieVersionSupport) matcher;
                 int ver = versupport.getVersion();
