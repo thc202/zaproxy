@@ -46,6 +46,7 @@ import org.apache.commons.httpclient.auth.AuthState;
 import org.apache.commons.httpclient.cookie.CookiePolicy;
 import org.apache.commons.httpclient.cookie.CookieSpec;
 import org.apache.commons.httpclient.cookie.CookieVersionSupport;
+import org.apache.commons.httpclient.cookie.IgnoreCookiesSpec;
 import org.apache.commons.httpclient.cookie.MalformedCookieException;
 import org.apache.commons.httpclient.params.HttpMethodParams;
 import org.apache.commons.httpclient.protocol.Protocol;
@@ -1347,17 +1348,8 @@ public abstract class HttpMethodBase implements HttpMethod {
         }
         Cookie[] cookies = matcher.match(host, conn.getPort(),
             getPath(), conn.isSecure(), state.getCookies());
-        if ((cookies != null) && (cookies.length > 0)) {
-            if (getParams().isParameterTrue(HttpMethodParams.SINGLE_COOKIE_HEADER)) {
-                // In strict mode put all cookies on the same header
-                putAllCookiesInASingleHeader(host, matcher, cookies);
-            } else {
-                // In non-strict mode put each cookie on a separate header
-                for (int i = 0; i < cookies.length; i++) {
-                    String s = matcher.formatCookie(cookies[i]);
-                    getRequestHeaderGroup().addHeader(new Header(HttpHeader.COOKIE, s, true));
-                }
-            }
+        if ((cookies != null && cookies.length > 0) || cookieheaders.length > 0) {
+            putAllCookiesInASingleHeader(host, matcher, cookies);
             if (matcher instanceof CookieVersionSupport) {
                 CookieVersionSupport versupport = (CookieVersionSupport) matcher;
                 int ver = versupport.getVersion();
@@ -1407,6 +1399,10 @@ public abstract class HttpMethodBase implements HttpMethod {
             mergedCookies.put(cookie.getName(),cookie);
         }
         cookies = mergedCookies.values().toArray(new Cookie[mergedCookies.size()]);
+        if (matcher instanceof IgnoreCookiesSpec) {
+            matcher = CookiePolicy.getCookieSpec(CookiePolicy.DEFAULT);
+        }
+
         String s = matcher.formatCookies(cookies);
         getRequestHeaderGroup()
                 .addHeader(new Header(HttpHeader.COOKIE, s, true));
