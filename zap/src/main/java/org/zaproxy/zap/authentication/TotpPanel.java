@@ -19,23 +19,19 @@
  */
 package org.zaproxy.zap.authentication;
 
-import java.awt.Dialog;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.GroupLayout;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.SwingUtilities;
 import org.parosproxy.paros.Constant;
 import org.zaproxy.zap.authentication.TotpAuthenticationCredentials.TotpData;
 import org.zaproxy.zap.utils.ZapNumberSpinner;
 import org.zaproxy.zap.utils.ZapTextField;
-import org.zaproxy.zap.view.AbstractFormDialog;
 
 @SuppressWarnings("serial")
-public class DialogTotp extends AbstractFormDialog {
+public class TotpPanel extends JPanel {
 
     private static final long serialVersionUID = 1L;
 
@@ -44,21 +40,9 @@ public class DialogTotp extends AbstractFormDialog {
     private ZapNumberSpinner totpDigitsNumberSpinner;
     private JComboBox<String> totpAlgorithmComboBox;
 
-    private TotpData totpData;
-
-    public DialogTotp(JPanel owner) {
-        super(
-                (Dialog) SwingUtilities.getAncestorOfClass(Dialog.class, owner),
-                Constant.messages.getString("authentication.method.all.credentials.totp.ui.title"));
-        pack();
-    }
-
-    @Override
-    protected JPanel getFieldsPanel() {
-        JPanel fieldsPanel = new JPanel();
-
-        GroupLayout layout = new GroupLayout(fieldsPanel);
-        fieldsPanel.setLayout(layout);
+    public TotpPanel() {
+        GroupLayout layout = new GroupLayout(this);
+        this.setLayout(layout);
         layout.setAutoCreateGaps(true);
         layout.setAutoCreateContainerGaps(true);
 
@@ -110,10 +94,6 @@ public class DialogTotp extends AbstractFormDialog {
                                 layout.createParallelGroup(GroupLayout.Alignment.BASELINE)
                                         .addComponent(totpAlgorithmLabel)
                                         .addComponent(totpAlgorithmComboBox)));
-
-        setConfirmButtonEnabled(true);
-
-        return fieldsPanel;
     }
 
     private static JLabel createLabel(String key, JComponent field) {
@@ -125,40 +105,7 @@ public class DialogTotp extends AbstractFormDialog {
         return label;
     }
 
-    @Override
-    protected String getConfirmButtonLabel() {
-        return Constant.messages.getString(
-                "authentication.method.all.credentials.totp.ui.save.button");
-    }
-
-    @Override
-    protected boolean validateFields() {
-        try {
-            TotpAuthenticationCredentials.getGenerator().validate(createStep());
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    e.getMessage(),
-                    Constant.messages.getString(
-                            "authentication.method.all.credentials.totp.ui.warn.invalid.title"),
-                    JOptionPane.INFORMATION_MESSAGE);
-            return false;
-        }
-
-        return true;
-    }
-
-    private TotpData createStep() {
-        return new TotpData(
-                totpSecretTextField.getText(),
-                totpPeriodNumberSpinner.getValue(),
-                totpDigitsNumberSpinner.getValue(),
-                (String) totpAlgorithmComboBox.getSelectedItem());
-    }
-
     public void setTotpData(TotpData totpData) {
-        this.totpData = totpData;
-
         totpSecretTextField.setText(totpData.secret());
         totpSecretTextField.discardAllEdits();
         totpPeriodNumberSpinner.setValue(totpData.period());
@@ -166,12 +113,11 @@ public class DialogTotp extends AbstractFormDialog {
         totpAlgorithmComboBox.setSelectedItem(totpData.algorithm());
     }
 
-    @Override
-    protected void performAction() {
-        totpData = createStep();
-    }
-
     public TotpData getTotpData() {
-        return totpData;
+        return new TotpData(
+                totpSecretTextField.getText(),
+                totpPeriodNumberSpinner.getValue(),
+                totpDigitsNumberSpinner.getValue(),
+                (String) totpAlgorithmComboBox.getSelectedItem());
     }
 }

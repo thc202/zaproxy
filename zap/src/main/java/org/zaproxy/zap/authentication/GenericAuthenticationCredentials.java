@@ -159,7 +159,7 @@ public class GenericAuthenticationCredentials extends TotpAuthenticationCredenti
 
             private static final long serialVersionUID = 1L;
 
-            private TotpButton totpButton;
+            private TotpPanel totpPanel;
 
             public CredentialsPanel(String[] paramNames) {
                 super(paramNames);
@@ -171,16 +171,17 @@ public class GenericAuthenticationCredentials extends TotpAuthenticationCredenti
                 int fieldIx = paramNames.length * 2;
                 remove(fieldIx);
 
-                totpButton = new TotpButton(this, getCredentials().getTotpData());
-                add(totpButton, LayoutHelper.getGBC(0, fieldIx, 2, 0.0d, 0.0d));
+                totpPanel = new TotpPanel();
+                totpPanel.setTotpData(getCredentials().getTotpData());
+                add(totpPanel, LayoutHelper.getGBC(0, fieldIx, 2, 0.0d, 0.0d));
 
                 fieldIx++;
                 add(Box.createVerticalGlue(), LayoutHelper.getGBC(0, fieldIx, 2, 0.0d, 1.0d));
             }
 
             public void save() {
-                if (totpButton != null) {
-                    credentials.setTotpData(totpButton.getTotpData());
+                if (totpPanel != null) {
+                    credentials.setTotpData(totpPanel.getTotpData());
                 }
             }
         }

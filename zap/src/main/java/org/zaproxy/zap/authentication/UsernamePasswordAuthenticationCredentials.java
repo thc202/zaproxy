@@ -19,6 +19,7 @@
  */
 package org.zaproxy.zap.authentication;
 
+import java.awt.BorderLayout;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.util.Arrays;
@@ -27,7 +28,9 @@ import java.util.List;
 import java.util.Map;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
+import javax.swing.JPanel;
 import javax.swing.JPasswordField;
+import javax.swing.JTabbedPane;
 import net.sf.json.JSONObject;
 import org.apache.commons.codec.binary.Base64;
 import org.parosproxy.paros.Constant;
@@ -185,36 +188,42 @@ public class UsernamePasswordAuthenticationCredentials extends TotpAuthenticatio
         private ZapTextField usernameTextField;
         private JPasswordField passwordTextField;
 
-        private TotpButton totpButton;
+        private TotpPanel totpPanel;
 
         public UsernamePasswordAuthenticationCredentialsOptionsPanel(
                 UsernamePasswordAuthenticationCredentials credentials) {
             super(credentials);
-            initialize();
-        }
 
-        private void initialize() {
-            this.setLayout(new GridBagLayout());
+            setLayout(new BorderLayout());
 
-            this.add(new JLabel(USERNAME_LABEL), LayoutHelper.getGBC(0, 0, 1, 0.0d));
+            JPanel panel = new JPanel();
+            panel.setLayout(new GridBagLayout());
+
+            panel.add(new JLabel(USERNAME_LABEL), LayoutHelper.getGBC(0, 0, 1, 0.0d));
             this.usernameTextField = new ZapTextField();
             if (this.getCredentials().username != null)
                 this.usernameTextField.setText(this.getCredentials().username);
-            this.add(
+            panel.add(
                     this.usernameTextField,
                     LayoutHelper.getGBC(1, 0, 1, 0.0d, new Insets(0, 4, 0, 0)));
 
-            this.add(new JLabel(PASSWORD_LABEL), LayoutHelper.getGBC(0, 1, 1, 0.0d));
+            panel.add(new JLabel(PASSWORD_LABEL), LayoutHelper.getGBC(0, 1, 1, 0.0d));
             this.passwordTextField = new JPasswordField();
             if (this.getCredentials().password != null)
                 this.passwordTextField.setText(this.getCredentials().password);
-            this.add(
+            panel.add(
                     this.passwordTextField,
                     LayoutHelper.getGBC(1, 1, 1, 1.0d, new Insets(0, 4, 0, 0)));
 
             if (getCredentials().isTotpEnabled()) {
-                totpButton = new TotpButton(this, getCredentials().getTotpData());
-                add(totpButton, LayoutHelper.getGBC(0, 2, 2, 0.0d));
+                JTabbedPane pane = new JTabbedPane();
+                totpPanel = new TotpPanel();
+                totpPanel.setTotpData(getCredentials().getTotpData());
+                pane.addTab("Credentials", panel);
+                pane.addTab("TOTP", totpPanel);
+                add(pane);
+            } else {
+                add(panel);
             }
         }
 
@@ -238,8 +247,8 @@ public class UsernamePasswordAuthenticationCredentials extends TotpAuthenticatio
             getCredentials().username = usernameTextField.getText();
             getCredentials().password = new String(passwordTextField.getPassword());
 
-            if (totpButton != null) {
-                getCredentials().setTotpData(totpButton.getTotpData());
+            if (totpPanel != null) {
+                getCredentials().setTotpData(totpPanel.getTotpData());
             }
         }
     }
