@@ -77,6 +77,7 @@ import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.configuration.HierarchicalConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.parosproxy.paros.core.scanner.Plugin.AlertThreshold;
 import org.zaproxy.zap.control.ExtensionFactory;
 
 public class PluginFactory {
@@ -96,12 +97,37 @@ public class PluginFactory {
     private int totalPluginToRun = 0;
     private boolean init = false;
     private Configuration config;
+    private boolean locked;
 
     public PluginFactory() {
         super();
         HierarchicalConfiguration configuration = new HierarchicalConfiguration();
         configuration.setDelimiterParsingDisabled(true);
         config = configuration;
+    }
+
+    /**
+     * Tells whether or not this factory is locked.
+     *
+     * <p>Locked factories automatically disable any rules not defined in the loaded configuration.
+     *
+     * @return {@code true} if the factory is locked, {@code false} otherwise.
+     * @since 2.17.0
+     * @see #loadAllPlugin(Configuration)
+     */
+    public boolean isLocked() {
+        return locked;
+    }
+
+    /**
+     * Sets whether or not this factory should be locked.
+     *
+     * @param locked {@code true} if the factory should be locked, {@code false} otherwise.
+     * @since 2.17.0
+     * @see #isLocked()
+     */
+    public void setLocked(boolean locked) {
+        this.locked = locked;
     }
 
     private static synchronized void initPlugins() {
@@ -396,7 +422,14 @@ public class PluginFactory {
                         continue;
                     }
 
+                    boolean disable =
+                            locked && !config.getKeys("plugins.p" + loadedPlugin.getId()).hasNext();
+
                     Plugin plugin = createNewPlugin(loadedPlugin, config);
+                    if (disable) {
+                        plugin.setAlertThreshold(AlertThreshold.OFF);
+                    }
+
                     LOGGER.debug(
                             "loaded plugin {} with: Threshold={} Strength={}",
                             plugin.getName(),
